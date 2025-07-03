@@ -21,9 +21,8 @@ import os
 from dotenv import load_dotenv
 
 # --- Configure Logging ---
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
+logging.basicConfig(level=logging.INFO)
 # --- Set Streamlit Page Config ---
 st.set_page_config(page_title="AstroCostX", page_icon="🛰️", layout="wide")
 
@@ -70,7 +69,7 @@ except KeyError as e:
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
     WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
-# --- Set API Keys ---
+# --- API Key Dictionary ---
 API_KEYS = {
     "NASA": NASA_API_KEY,
     "NEWS": NEWS_API_KEY,
@@ -79,7 +78,7 @@ API_KEYS = {
     "WEATHER": WEATHER_API_KEY,
 }
 
-# --- Validate API Key Format ---
+# --- API Key Validation ---
 def is_valid_api_key(api_key, provider):
     if not api_key or api_key == f"your_{provider.lower()}_api_key":
         logger.error(f"Invalid or missing {provider} API key.")
@@ -88,12 +87,14 @@ def is_valid_api_key(api_key, provider):
         return bool(re.match(r'^gsk_[a-zA-Z0-9]+$', api_key))
     return True
 
-# --- Initialize AI Clients ---
+# --- AI Client Initialization ---
 def initialize_ai_clients():
     clients = {}
+
+    # --- Initialize GROQ ---
     if is_valid_api_key(API_KEYS["GROQ"], "GROQ"):
         try:
-            cclient = Groq(api_key=API_KEYS["GROQ"])
+            clients["groq"] = Groq(api_key=API_KEYS["GROQ"])  # ✅ No proxies
             logger.info("GROQ client initialized successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize GROQ client: {e}")
@@ -102,10 +103,11 @@ def initialize_ai_clients():
         clients["groq"] = None
         logger.warning("GROQ API key invalid or missing.")
 
+    # --- Initialize Gemini ---
     if is_valid_api_key(API_KEYS["GOOGLE"], "GOOGLE"):
         try:
             genai.configure(api_key=API_KEYS["GOOGLE"])
-            clients["gemini"] = genai.GenerativeModel('gemini-1.5-flash')
+            clients["gemini"] = genai.GenerativeModel("gemini-1.5-flash")
             logger.info("Google Gemini client initialized successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize Google Gemini client: {e}")
@@ -113,9 +115,10 @@ def initialize_ai_clients():
     else:
         clients["gemini"] = None
         logger.warning("Google Gemini API key invalid or missing.")
-    
+
     return clients
 
+# --- Initialize on Run ---
 ai_clients = initialize_ai_clients()
 
 # --- Token Usage Tracking ---
@@ -142,16 +145,14 @@ def update_token_usage(response, provider):
         logger.error(f"Error tracking token usage for {provider}: {e}")
 
 # --- AI Helper Functions ---
-
 def groq_chat(messages, model="llama3-70b-8192", max_retries=3):
-    groq_client = ai_clients.get("groq")
-    if not groq_client:
+    if not ai_clients.get("groq"):
         logger.warning("GROQ client unavailable, attempting Gemini fallback.")
         return gemini_fallback(messages)
 
     for attempt in range(max_retries):
         try:
-            response = groq_client.chat.completions.create(
+            response = ai_clients["groq"].chat.completions.create(
                 messages=messages,
                 model=model,
                 temperature=0.4,
@@ -164,39 +165,32 @@ def groq_chat(messages, model="llama3-70b-8192", max_retries=3):
                 logger.warning(f"GROQ returned empty or invalid response on attempt {attempt + 1}")
         except Exception as e:
             logger.error(f"GROQ API error (attempt {attempt + 1}/{max_retries}): {e}")
-            if attempt < max_retries - 1:
-                time.sleep(2 ** attempt)
-    
+            if attempt == max_retries - 1:
+                break
+            time.sleep(2 ** attempt)
     logger.warning("GROQ retries exhausted, attempting Gemini fallback.")
     return gemini_fallback(messages)
 
-
 def gemini_fallback(messages):
-    gemini_client = ai_clients.get("gemini")
-    if not gemini_client:
+    if not ai_clients.get("gemini"):
         logger.error("Google Gemini client unavailable.")
         return "AI service unavailable due to configuration issues.", "none"
     
     try:
-        response = gemini_client.generate_content(
+        response = ai_clients["gemini"].generate_content(
             messages[-1]["content"],
             generation_config={"max_output_tokens": 512, "temperature": 0.4}
         )
-        if hasattr(response, "text") and response.text:
+        if response and response.text:
             logger.info("Successfully used Google Gemini as fallback.")
             return response.text.strip(), "gemini"
         else:
             logger.warning("Google Gemini returned empty or invalid response.")
             return "AI service unavailable due to empty response.", "none"
-
     except Exception as e:
         logger.error(f"Google Gemini API error: {e}")
-        if "quota" in str(e).lower() or "429" in str(e):
-            return (
-                "Gemini API quota exceeded. Please try again later or upgrade your quota.",
-                "none"
-            )
         return "AI service unavailable due to API issues.", "none"
+
 # --- Theme Configuration ---
 THEMES = {
     "Dark": {
@@ -467,21 +461,14 @@ def get_weather_forecast(city):
 @st.cache_data(ttl=10)
 def get_iss_location():
     try:
-        url = "https://api.wheretheiss.at/v1/satellites/25544"
-        response = requests.get(url, timeout=5)
-        response.raise_for_status()
-        data = response.json()
-        
-        if "latitude" in data and "longitude" in data:
-            logger.info("ISS location fetched successfully")
-            return {
-                "latitude": data["latitude"],
-                "longitude": data["longitude"]
-            }
-        else:
-            logger.warning("Latitude or longitude missing in ISS data.")
-            return None
-
+        url = "http://api.open-notify.org/iss-now.json"
+        r = requests.get(url, timeout=5)
+        r.raise_for_status()
+        data = r.json()
+        if "iss_position" in data and "latitude" in data["iss_position"] and "longitude" in data["iss_position"]:
+            logger.info("ISS API called successfully")
+            return data
+        return None
     except requests.RequestException as e:
         logger.error(f"ISS API request failed: {e}")
         return None
