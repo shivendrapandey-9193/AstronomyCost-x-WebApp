@@ -467,14 +467,21 @@ def get_weather_forecast(city):
 @st.cache_data(ttl=10)
 def get_iss_location():
     try:
-        url = "http://api.open-notify.org/iss-now.json"
-        r = requests.get(url, timeout=5)
-        r.raise_for_status()
-        data = r.json()
-        if "iss_position" in data and "latitude" in data["iss_position"] and "longitude" in data["iss_position"]:
-            logger.info("ISS API called successfully")
-            return data
-        return None
+        url = "https://api.wheretheiss.at/v1/satellites/25544"
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        
+        if "latitude" in data and "longitude" in data:
+            logger.info("ISS location fetched successfully")
+            return {
+                "latitude": data["latitude"],
+                "longitude": data["longitude"]
+            }
+        else:
+            logger.warning("Latitude or longitude missing in ISS data.")
+            return None
+
     except requests.RequestException as e:
         logger.error(f"ISS API request failed: {e}")
         return None
