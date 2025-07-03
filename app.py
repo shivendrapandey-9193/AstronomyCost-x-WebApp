@@ -149,68 +149,61 @@ def update_token_usage(response, provider):
 
 # --- AI Helper Functions ---
 def groq_chat(messages, model="meta-llama-3-8b-instruct", max_retries=3):
-    if not ai_clients.get("groq"):
-        logger.warning("GROQ client unavailable, attempting Gemini fallback.")
-        return gemini_fallback(messages)
+    try:
+        if not ai_clients.get("groq"):
+            logger.warning("GROQ client unavailable, attempting Gemini fallback.")
+            return gemini_fallback(messages, ai_clients)
 
-    for attempt in range(max_retries):
+        response = ai_clients["groq"].chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.7
+        )
+        return response.choices[0].message.content.strip(), "groq"
+
+    except Exception as e:
+        logger.error(f"GROQ chat error: {e}. Attempting Gemini fallback.")
         try:
-            response = ai_clients["groq"].chat.completions.create(
-                messages=messages,
-                model=model,
-                temperature=0.4,
-                max_tokens=512,
-            )
-            if response and response.choices and response.choices[0].message.content:
-                update_token_usage(response, "groq")
-                return response.choices[0].message.content.strip(), "groq"
-            else:
-                logger.warning(f"GROQ returned empty or invalid response on attempt {attempt + 1}")
-        except Exception as e:
-            logger.error(f"GROQ API error (attempt {attempt + 1}/{max_retries}): {e}")
-            if attempt == max_retries - 1:
-                break
-            time.sleep(2 ** attempt)
-    logger.warning("GROQ retries exhausted, attempting Gemini fallback.")
-    return gemini_fallback(messages)
+            return gemini_fallback(messages, ai_clients)
+        except Exception as fallback_e:
+            logger.error(f"Gemini fallback also failed: {fallback_e}")
+            return "Sorry, AI service is temporarily unavailable.", "none"
+
 
 def gemini_fallback(messages, ai_clients):
     prompt = messages[-1]["content"]
 
-    # Try Gemini 1.5 Flash
-    if ai_clients.get("gemini_flash"):
-        try:
+    try:
+        if ai_clients.get("gemini_flash"):
             response = ai_clients["gemini_flash"].generate_content(
                 prompt,
                 generation_config={"max_output_tokens": 512, "temperature": 0.4}
             )
             if response and response.text:
-                logger.info("Gemini 1.5 Flash response used.")
                 return response.text.strip(), "gemini-1.5-flash"
-        except Exception as e:
-            logger.warning(f"Gemini 1.5 Flash failed: {e}")
 
-    # Try Gemini 1.0 Pro
-    if ai_clients.get("gemini_1_0"):
-        try:
+    except Exception as e:
+        logger.warning(f"Gemini 1.5 Flash failed: {e}")
+
+    try:
+        if ai_clients.get("gemini_1_0"):
             response = ai_clients["gemini_1_0"].generate_content(
                 prompt,
                 generation_config={"max_output_tokens": 512, "temperature": 0.4}
             )
             if response and response.text:
-                logger.info("Gemini 1.0 Pro response used.")
                 return response.text.strip(), "gemini-1.0-pro"
-        except Exception as e:
-            logger.warning(f"Gemini 1.0 Pro fallback failed: {e}")
 
-    # Final fallback: Fireworks AI (LLaMA 3)
-    logger.warning("Both Gemini models failed. Using Fireworks fallback.")
+    except Exception as e:
+        logger.warning(f"Gemini 1.0 Pro fallback failed: {e}")
+
     try:
-        fallback_response = call_llama3_fallback(prompt)
-        return fallback_response.strip(), "llama3"
-    except Exception as fe:
-        logger.error(f"Fireworks fallback failed: {fe}")
-        return "All AI services are currently unavailable.", "none"
+        logger.warning("Using Fireworks fallback.")
+        response = call_llama3_fallback(prompt)
+        return response.strip(), "llama3"
+    except Exception as e:
+        logger.error(f"Fireworks fallback failed: {e}")
+        return "Sorry, AI service is temporarily unavailable.", "none"
 
 # --- Theme Configuration ---
 THEMES = {
