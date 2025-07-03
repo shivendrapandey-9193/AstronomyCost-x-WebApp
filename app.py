@@ -91,7 +91,7 @@ def is_valid_api_key(api_key, provider):
 def initialize_ai_clients():
     clients = {}
 
-    # GROQ (optional)
+    # Initialize GROQ client
     if is_valid_api_key(API_KEYS["GROQ"], "GROQ"):
         try:
             clients["groq"] = Groq(api_key=API_KEYS["GROQ"])
@@ -102,13 +102,13 @@ def initialize_ai_clients():
     else:
         clients["groq"] = None
 
-    # Google Gemini (flash + pro fallback)
+    # Initialize Gemini Flash and Pro
     if is_valid_api_key(API_KEYS["GOOGLE"], "GOOGLE"):
         try:
             genai.configure(api_key=API_KEYS["GOOGLE"])
-            clients["gemini_flash"] = genai.GenerativeModel("gemini-1.5-flash")
-            clients["gemini_pro"] = genai.GenerativeModel("gemini-pro")  # ✅ Corrected here
-            logger.info("Gemini flash and pro clients initialized successfully.")
+            clients["gemini_flash"] = genai.GenerativeModel("models/gemini-1.5-flash")
+            clients["gemini_pro"] = genai.GenerativeModel("models/gemini-1.5-pro-latest")
+            logger.info("Gemini flash and 1.5 pro clients initialized successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize Google Gemini clients: {e}")
             clients["gemini_flash"] = None
@@ -149,6 +149,10 @@ def update_token_usage(response, provider):
 
 # --- AI Helper Functions ---
 def groq_chat(messages, model="meta-llama-3-8b-instruct", max_retries=3):
+    if not isinstance(messages, list) or not messages or not messages[-1].get("content"):
+        logger.error("Invalid message format.")
+        return "Invalid input format", "none"
+
     try:
         if not ai_clients.get("groq"):
             logger.warning("GROQ client unavailable, attempting Gemini fallback.")
@@ -166,7 +170,7 @@ def groq_chat(messages, model="meta-llama-3-8b-instruct", max_retries=3):
         try:
             return gemini_fallback(messages, ai_clients)
         except Exception as fallback_e:
-            logger.error(f"Gemini and Fireworks fallback failed: {fallback_e}")
+            logger.error(f"Gemini and Fireworks fallback also failed: {fallback_e}")
             return "Sorry, AI service is temporarily unavailable.", "none"
 
 
@@ -177,7 +181,7 @@ def call_llama3_fallback(prompt):
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "accounts/fireworks/models/llama-v3-8b-instruct",
+        "model": "accounts/fireworks/models/llama-v3-8b-chat",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7,
         "max_tokens": 512
@@ -187,12 +191,12 @@ def call_llama3_fallback(prompt):
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
 
-
 def gemini_fallback(messages, ai_clients):
     prompt = messages[-1]["content"]
 
+    # Try Gemini 1.5 Flash
     try:
-        if ai_clients.get("gemini_pro"):
+        if ai_clients.get("gemini_flash"):
             response = ai_clients["gemini_flash"].generate_content(
                 prompt,
                 generation_config={"max_output_tokens": 512, "temperature": 0.4}
@@ -202,17 +206,19 @@ def gemini_fallback(messages, ai_clients):
     except Exception as e:
         logger.warning(f"Gemini 1.5 Flash failed: {e}")
 
+    # Try Gemini 1.5 Pro
     try:
-        if ai_clients.get("gemini_pro"):  # updated key
+        if ai_clients.get("gemini_pro"):
             response = ai_clients["gemini_pro"].generate_content(
                 prompt,
                 generation_config={"max_output_tokens": 512, "temperature": 0.4}
             )
             if response and response.text:
-                return response.text.strip(), "gemini-pro"
+                return response.text.strip(), "gemini-1.5-pro"
     except Exception as e:
         logger.warning(f"Gemini Pro fallback failed: {e}")
 
+    # Try Fireworks (LLaMA 3 fallback)
     try:
         logger.warning("Using Fireworks fallback.")
         response = call_llama3_fallback(prompt)
