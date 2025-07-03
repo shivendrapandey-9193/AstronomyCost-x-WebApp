@@ -1459,13 +1459,13 @@ def main_app():
             Powered by AI | Built with Streamlit | © 2025 <strong>AstroCostX</strong><br>
             Made by <strong>Shivendra Kumar Pandey</strong> | 📧 
             <a href="mailto:pandeyshr2006@gmail.com">pandeyshr2006@gmail.com</a><br>
-            <a href="https://www.linkedin.com/in/shivendra-kumar-pandey" target="_blank" title="LinkedIn">
+            <a href="https://www.linkedin.com/in/shivendra-kumar-pandey-b8466130a/" target="_blank" title="LinkedIn">
                 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/linkedin/linkedin-original.svg" width="20">
             </a>
-            <a href="https://github.com/shivendrapandey" target="_blank" title="GitHub">
+            <a href="https://github.com/shivendrapandey-9193" target="_blank" title="GitHub">
                 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/github/github-original.svg" width="20">
             </a>
-            <a href="https://x.com/shivendrapandey" target="_blank" title="X (Twitter)">
+            <a href="https://x.com/itshivendra9193" target="_blank" title="X (Twitter)">
                 <img src="https://abs.twimg.com/favicons/twitter.2.ico" width="20">
             </a>
         </div>
