@@ -91,10 +91,9 @@ def is_valid_api_key(api_key, provider):
 def initialize_ai_clients():
     clients = {}
 
-    # GROQ Client Initialization
+    # GROQ (optional)
     if is_valid_api_key(API_KEYS["GROQ"], "GROQ"):
         try:
-            # 🚫 DO NOT PASS 'proxies'
             clients["groq"] = Groq(api_key=API_KEYS["GROQ"])
             logger.info("GROQ client initialized successfully.")
         except Exception as e:
@@ -102,22 +101,24 @@ def initialize_ai_clients():
             clients["groq"] = None
     else:
         clients["groq"] = None
-        logger.warning("GROQ API key invalid or missing.")
 
-    # Gemini Client Initialization
+    # Google Gemini (try flash first)
     if is_valid_api_key(API_KEYS["GOOGLE"], "GOOGLE"):
         try:
             genai.configure(api_key=API_KEYS["GOOGLE"])
-            clients["gemini"] = genai.GenerativeModel("gemini-1.5-flash")
-            logger.info("Google Gemini client initialized successfully.")
+            clients["gemini_flash"] = genai.GenerativeModel("gemini-1.5-flash")
+            clients["gemini_1_0"] = genai.GenerativeModel("gemini-1.0-pro")
+            logger.info("Gemini flash and 1.0 clients initialized successfully.")
         except Exception as e:
-            logger.error(f"Failed to initialize Google Gemini client: {e}")
-            clients["gemini"] = None
+            logger.error(f"Failed to initialize Google Gemini clients: {e}")
+            clients["gemini_flash"] = None
+            clients["gemini_1_0"] = None
     else:
-        clients["gemini"] = None
-        logger.warning("Google Gemini API key invalid or missing.")
+        clients["gemini_flash"] = None
+        clients["gemini_1_0"] = None
 
     return clients
+
 
 
 # --- Initialize on Run ---
@@ -173,25 +174,43 @@ def groq_chat(messages, model="meta-llama-3-8b-instruct", max_retries=3):
     logger.warning("GROQ retries exhausted, attempting Gemini fallback.")
     return gemini_fallback(messages)
 
-def gemini_fallback(messages):
-    if not ai_clients.get("gemini"):
-        logger.error("Google Gemini client unavailable.")
-        return "AI service unavailable due to configuration issues.", "none"
-    
+def gemini_fallback(messages, ai_clients):
+    prompt = messages[-1]["content"]
+
+    # Try Gemini 1.5 Flash
+    if ai_clients.get("gemini_flash"):
+        try:
+            response = ai_clients["gemini_flash"].generate_content(
+                prompt,
+                generation_config={"max_output_tokens": 512, "temperature": 0.4}
+            )
+            if response and response.text:
+                logger.info("Gemini 1.5 Flash response used.")
+                return response.text.strip(), "gemini-1.5-flash"
+        except Exception as e:
+            logger.warning(f"Gemini 1.5 Flash failed: {e}")
+
+    # Try Gemini 1.0 Pro
+    if ai_clients.get("gemini_1_0"):
+        try:
+            response = ai_clients["gemini_1_0"].generate_content(
+                prompt,
+                generation_config={"max_output_tokens": 512, "temperature": 0.4}
+            )
+            if response and response.text:
+                logger.info("Gemini 1.0 Pro response used.")
+                return response.text.strip(), "gemini-1.0-pro"
+        except Exception as e:
+            logger.warning(f"Gemini 1.0 Pro fallback failed: {e}")
+
+    # Final fallback: Fireworks AI (LLaMA 3)
+    logger.warning("Both Gemini models failed. Using Fireworks fallback.")
     try:
-        response = ai_clients["gemini"].generate_content(
-            messages[-1]["content"],
-            generation_config={"max_output_tokens": 512, "temperature": 0.4}
-        )
-        if response and response.text:
-            logger.info("Successfully used Google Gemini as fallback.")
-            return response.text.strip(), "gemini"
-        else:
-            logger.warning("Google Gemini returned empty or invalid response.")
-            return "AI service unavailable due to empty response.", "none"
-    except Exception as e:
-        logger.error(f"Google Gemini API error: {e}")
-        return "AI service unavailable due to API issues.", "none"
+        fallback_response = call_llama3_fallback(prompt)
+        return fallback_response.strip(), "llama3"
+    except Exception as fe:
+        logger.error(f"Fireworks fallback failed: {fe}")
+        return "All AI services are currently unavailable.", "none"
 
 # --- Theme Configuration ---
 THEMES = {
