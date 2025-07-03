@@ -93,7 +93,7 @@ def initialize_ai_clients():
     clients = {}
     if is_valid_api_key(API_KEYS["GROQ"], "GROQ"):
         try:
-            clients["groq"] = Groq(api_key=API_KEYS["GROQ"])
+            cclient = Groq(api_key=API_KEYS["GROQ"])
             logger.info("GROQ client initialized successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize GROQ client: {e}")
@@ -142,14 +142,16 @@ def update_token_usage(response, provider):
         logger.error(f"Error tracking token usage for {provider}: {e}")
 
 # --- AI Helper Functions ---
+
 def groq_chat(messages, model="llama3-70b-8192", max_retries=3):
-    if not ai_clients.get("groq"):
+    groq_client = ai_clients.get("groq")
+    if not groq_client:
         logger.warning("GROQ client unavailable, attempting Gemini fallback.")
         return gemini_fallback(messages)
 
     for attempt in range(max_retries):
         try:
-            response = ai_clients["groq"].chat.completions.create(
+            response = groq_client.chat.completions.create(
                 messages=messages,
                 model=model,
                 temperature=0.4,
@@ -162,32 +164,39 @@ def groq_chat(messages, model="llama3-70b-8192", max_retries=3):
                 logger.warning(f"GROQ returned empty or invalid response on attempt {attempt + 1}")
         except Exception as e:
             logger.error(f"GROQ API error (attempt {attempt + 1}/{max_retries}): {e}")
-            if attempt == max_retries - 1:
-                break
-            time.sleep(2 ** attempt)
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+    
     logger.warning("GROQ retries exhausted, attempting Gemini fallback.")
     return gemini_fallback(messages)
 
+
 def gemini_fallback(messages):
-    if not ai_clients.get("gemini"):
+    gemini_client = ai_clients.get("gemini")
+    if not gemini_client:
         logger.error("Google Gemini client unavailable.")
         return "AI service unavailable due to configuration issues.", "none"
     
     try:
-        response = ai_clients["gemini"].generate_content(
+        response = gemini_client.generate_content(
             messages[-1]["content"],
             generation_config={"max_output_tokens": 512, "temperature": 0.4}
         )
-        if response and response.text:
+        if hasattr(response, "text") and response.text:
             logger.info("Successfully used Google Gemini as fallback.")
             return response.text.strip(), "gemini"
         else:
             logger.warning("Google Gemini returned empty or invalid response.")
             return "AI service unavailable due to empty response.", "none"
+
     except Exception as e:
         logger.error(f"Google Gemini API error: {e}")
+        if "quota" in str(e).lower() or "429" in str(e):
+            return (
+                "Gemini API quota exceeded. Please try again later or upgrade your quota.",
+                "none"
+            )
         return "AI service unavailable due to API issues.", "none"
-
 # --- Theme Configuration ---
 THEMES = {
     "Dark": {
