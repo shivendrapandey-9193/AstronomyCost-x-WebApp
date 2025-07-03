@@ -91,10 +91,11 @@ def is_valid_api_key(api_key, provider):
 def initialize_ai_clients():
     clients = {}
 
-    # --- Initialize GROQ ---
+    # GROQ Client Initialization
     if is_valid_api_key(API_KEYS["GROQ"], "GROQ"):
         try:
-            clients["groq"] = Groq(api_key=API_KEYS["GROQ"])  # ✅ No proxies
+            # 🚫 DO NOT PASS 'proxies'
+            clients["groq"] = Groq(api_key=API_KEYS["GROQ"])
             logger.info("GROQ client initialized successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize GROQ client: {e}")
@@ -103,7 +104,7 @@ def initialize_ai_clients():
         clients["groq"] = None
         logger.warning("GROQ API key invalid or missing.")
 
-    # --- Initialize Gemini ---
+    # Gemini Client Initialization
     if is_valid_api_key(API_KEYS["GOOGLE"], "GOOGLE"):
         try:
             genai.configure(api_key=API_KEYS["GOOGLE"])
@@ -117,6 +118,7 @@ def initialize_ai_clients():
         logger.warning("Google Gemini API key invalid or missing.")
 
     return clients
+
 
 # --- Initialize on Run ---
 ai_clients = initialize_ai_clients()
@@ -145,7 +147,7 @@ def update_token_usage(response, provider):
         logger.error(f"Error tracking token usage for {provider}: {e}")
 
 # --- AI Helper Functions ---
-def groq_chat(messages, model="llama3-70b-8192", max_retries=3):
+def groq_chat(messages, model="meta-llama-3-8b-instruct", max_retries=3):
     if not ai_clients.get("groq"):
         logger.warning("GROQ client unavailable, attempting Gemini fallback.")
         return gemini_fallback(messages)
